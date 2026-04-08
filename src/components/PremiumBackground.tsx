@@ -7,7 +7,7 @@ const PremiumBackground = () => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    const gl = canvas.getContext('webgl', { antialias: true, alpha: false });
+    const gl = canvas.getContext('webgl', { antialias: true, alpha: true, premultipliedAlpha: false });
     if (!gl) return;
 
     // --- Shaders ---
@@ -26,13 +26,7 @@ const PremiumBackground = () => {
       uniform float uTime;
 
       float random(vec2 co) {
-        return fract(sin(dot(co.xy ,vec2(12.9898,78.233))) * 43758.5453);
-      }
-
-      // Helper to create a soft light orb
-      vec3 createOrb(vec2 uv, vec2 pos, vec3 color, float size) {
-        float d = distance(uv, pos);
-        return color * exp(-d * (5.0 / size));
+        return fract(sin(dot(co.xy, vec2(12.9898, 78.233))) * 43758.5453);
       }
 
       void main() {
@@ -40,44 +34,55 @@ const PremiumBackground = () => {
         float aspect = uResolution.x / uResolution.y;
         vec2 p = uv;
         p.x *= aspect;
-        
+
         vec2 m = uMouse / uResolution.xy;
         m.x *= aspect;
 
-        // Base Deep Atmosphere
-        vec3 base = mix(vec3(0.005, 0.005, 0.015), vec3(0.0), uv.y);
-
-        // --- Drifting Soft Lights ---
-        // We create 10 independent orbs moving like the requested circle code
-        vec3 orbs = vec3(0.0);
+        // --- Main mouse glow (warm amber/gold) ---
+        float d = distance(p, m);
         
-        for(int i = 1; i <= 15; i++) { // Increased to 15 orbs
-            float fi = float(i);
-            // Drifting logic: upward movement + horizontal sway
-            float x = fract(random(vec2(fi, 123.45)) + uTime * (0.012 + random(vec2(fi)) * 0.015)) * aspect;
-            float y = fract(random(vec2(fi, 543.21)) + uTime * (0.04 + random(vec2(fi)) * 0.06));
-            
-            // Pulse intensity - more dramatic
-            float pulse = 0.6 + 0.4 * sin(uTime * 0.4 + fi * 1.5);
-            float orbSize = 0.15 + 0.3 * random(vec2(fi, 99.9)); // Larger orbs
-            
-            // Brighter, more saturated colors
-            vec3 orbColor = mix(vec3(0.04, 0.08, 0.3), vec3(0.05, 0.15, 0.45), random(vec2(fi)));
-            orbs += createOrb(p, vec2(x, y), orbColor * pulse, orbSize);
+        // Large soft outer glow
+        float outerGlow = exp(-d * 2.2) * 0.55;
+        // Tighter inner core
+        float innerGlow = exp(-d * 5.5) * 0.45;
+        
+        float glow = outerGlow + innerGlow;
+
+        // Warm amber color palette
+        vec3 warmColor = mix(
+          vec3(0.95, 0.65, 0.25),   // warm amber
+          vec3(1.0, 0.85, 0.55),     // soft gold
+          innerGlow / (glow + 0.001)
+        );
+
+        // Subtle animated shimmer
+        float shimmer = 0.92 + 0.08 * sin(uTime * 1.2 + d * 8.0);
+        glow *= shimmer;
+
+        // Very subtle drifting warm particles (much lighter than before)
+        float particles = 0.0;
+        for (int i = 1; i <= 6; i++) {
+          float fi = float(i);
+          float x = fract(random(vec2(fi, 123.45)) + uTime * (0.008 + random(vec2(fi)) * 0.01)) * aspect;
+          float y = fract(random(vec2(fi, 543.21)) + uTime * (0.02 + random(vec2(fi)) * 0.03));
+          float pd = distance(p, vec2(x, y));
+          float pulse = 0.5 + 0.5 * sin(uTime * 0.6 + fi * 2.0);
+          particles += exp(-pd * 12.0) * 0.07 * pulse;
         }
 
-        // --- Main Mouse Glow ---
-        float d = distance(p, m);
-        float glow = exp(-d * 3.8);
-        vec3 mouseColor = vec3(0.05, 0.15, 0.4) * glow;
+        vec3 particleColor = vec3(1.0, 0.78, 0.4) * particles;
 
-        vec3 final = base + orbs + mouseColor;
+        vec3 finalColor = warmColor * glow + particleColor;
 
-        // Apply 32-bit Dithering to kill the 8-bit rings
-        float dither = (random(uv) - 0.5) * (1.0 / 128.0);
-        final += dither;
+        // Alpha based on glow intensity — fully transparent where there's no glow
+        float alpha = clamp(glow * 1.4 + particles * 0.8, 0.0, 0.6);
 
-        gl_FragColor = vec4(final, 1.0);
+        // Dither to prevent banding
+        float dither = (random(uv + uTime * 0.01) - 0.5) * (1.0 / 128.0);
+        finalColor += dither;
+        alpha += dither * 0.5;
+
+        gl_FragColor = vec4(finalColor, alpha);
       }
     `;
 
@@ -94,6 +99,10 @@ const PremiumBackground = () => {
     gl.attachShader(shaderProgram, compile(gl.FRAGMENT_SHADER, fs));
     gl.linkProgram(shaderProgram);
     gl.useProgram(shaderProgram);
+
+    // Enable blending for transparency
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
     const buffer = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
@@ -125,12 +134,13 @@ const PremiumBackground = () => {
         gl.viewport(0, 0, canvas.width, canvas.height);
       }
 
-      // Ensure we're using the correct program before setting uniforms
       gl.useProgram(shaderProgram);
+      gl.clearColor(0, 0, 0, 0);
+      gl.clear(gl.COLOR_BUFFER_BIT);
 
-      // Smooth mouse easing for high-end feel
-      mouseX += (targetX - mouseX) * 0.15;
-      mouseY += (targetY - mouseY) * 0.15;
+      // Smooth mouse easing
+      mouseX += (targetX - mouseX) * 0.08;
+      mouseY += (targetY - mouseY) * 0.08;
 
       gl.uniform2f(uRes, canvas.width, canvas.height);
       gl.uniform2f(uMouse, mouseX, mouseY);
@@ -147,7 +157,20 @@ const PremiumBackground = () => {
     };
   }, []);
 
-  return <canvas ref={canvasRef} className="fixed inset-0 z-0 w-full h-full block bg-black select-none pointer-events-none" />;
+  return (
+    <canvas
+      ref={canvasRef}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        width: '100%',
+        height: '100%',
+        zIndex: 9999,
+        pointerEvents: 'none',
+        mixBlendMode: 'soft-light',
+      }}
+    />
+  );
 };
 
 export default PremiumBackground;

@@ -7,7 +7,7 @@ const services = [
     id: 'photography',
     title: 'Photography',
     path: 'M 125 0 L 125 80 L 500 150 L 500 200',
-    image: 'https://images.unsplash.com/photo-1516035069371-29a1b244cc32?q=80&w=500&auto=format&fit=crop'
+    image: '/portfolio/cinematic_camera.png'
   },
   {
     id: 'video',
@@ -184,7 +184,7 @@ export const ServicesDiagram = () => {
 
             {/* Central Pill */}
             <div className="absolute bottom-0 left-1/2 -translate-x-1/2 z-20">
-              <button 
+              <button
                 className="group relative inline-flex h-14 items-center justify-center overflow-hidden rounded-full p-[1px] focus:outline-none"
               >
                 <span className="absolute inset-[-1000%] animate-spin bg-[conic-gradient(from_90deg_at_50%_50%,transparent_0%,transparent_80%,white_100%)]" style={{ animationDuration: '3s' }} />
